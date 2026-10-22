@@ -1,6 +1,6 @@
 {
   "name": "dsh-napcat-lifecycle",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "NapCat process lifecycle for DeepSeek Harness: spawn the QQ/OneBot bridge with the host, terminate it with the host.",
   "keywords": [
     "napcat",
