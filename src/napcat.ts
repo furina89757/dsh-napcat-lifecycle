@@ -33,11 +33,19 @@ export interface NapcatLayout {
   mainPath: string
 }
 
+/** Bounded output reader from the host subprocess service. */
+export interface OutputReader {
+  /** Read a byte range; \`lossy\` marks a range that slid out of the tail. */
+  readFrom(offset: number): { text: string; offset: number; lossy?: boolean }
+}
+
 /** Minimal subprocess handle surface this plugin needs. */
 export interface SpawnedProcess {
   done: Promise<{ exitCode: number | null; signal: string | null }>
   terminate(): Promise<void>
   waitForExit(): Promise<void>
+  /** Collected stdout (present when the spawn requested a collect cap). */
+  collected?: { stdout?: OutputReader; stderr?: OutputReader }
 }
 
 /** The subprocess capability this plugin consumes. */
@@ -150,6 +158,12 @@ export interface StartOptions {
   graceMs: number
   /** Captured-output cap for stdout (bytes). */
   stdoutMaxBytes?: number
+  /** Spill file for the complete stdout stream (diagnostics: the login QR
+   * code and login-failure lines land here even when the in-memory tail
+   * rotates past them). */
+  stdoutSpillPath?: string
+  /** Spill cap in bytes (the host drops the spill beyond this). */
+  stdoutSpillMaxBytes?: number
 }
 
 /**
@@ -162,17 +176,62 @@ export function startNapcat(options: StartOptions): SpawnedProcess {
   const env = buildEnv(layout)
   const argv = [layout.bootExe, qqExe, layout.hookDll, '-q', botQQ]
   log.info('[napcat-lifecycle] spawning: ' + argv.join(' '))
+  // stdout is COLLECTED (bounded tail) and optionally SPILLED: the in-memory
+  // tail serves the status panel's "recent log", while the spill file keeps the
+  // complete stream (the login QR code + the failure line that explains it)
+  // readable after the tail rotates.
+  const stdout: Record<string, unknown> = { maxBytes: options.stdoutMaxBytes ?? 256 * 1024 }
+  if (options.stdoutSpillPath !== undefined && options.stdoutSpillPath !== '') {
+    stdout.spill = {
+      path: options.stdoutSpillPath,
+      maxBytes: options.stdoutSpillMaxBytes ?? 8 * 1024 * 1024,
+    }
+  }
   return subprocess.spawn({
     argv,
     cwd: layout.dir,
     stdio: {
       stdin: 'ignore',
-      stdout: { maxBytes: options.stdoutMaxBytes ?? 256 * 1024 },
+      stdout,
       stderr: 'inherit',
     },
     graceMs,
     env: env as unknown as Record<string, string>,
   })
+}
+
+/** Login-failure markers NapCat prints when the stored credential is gone.
+ * A match means the process is healthy but needs a human to scan the QR code,
+ * so restarting cannot help. */
+export const LOGIN_FAILURE_MARKERS: readonly string[] = [
+  '登录态已失效',
+  '快速登录错误',
+  '请扫描下面的二维码',
+  '将使用二维码登录方式',
+]
+
+/**
+ * Whether recent output shows a login failure (needs a human, not a restart).
+ * @param output - recent stdout text.
+ * @returns the matched marker, or undefined.
+ */
+export function detectLoginFailure(output: string): string | undefined {
+  for (const marker of LOGIN_FAILURE_MARKERS) {
+    if (output.includes(marker)) return marker
+  }
+  return undefined
+}
+
+/** Read the whole collected stdout tail as text ('' when unavailable). */
+export function readOutput(handle: SpawnedProcess): string {
+  const reader = handle.collected?.stdout
+  if (reader === undefined) return ''
+  try {
+    const slice = reader.readFrom(0)
+    return slice.text
+  } catch {
+    return ''
+  }
 }
 
 /**

@@ -26,6 +26,15 @@ export interface NapcatLayout {
     loadPath: string;
     mainPath: string;
 }
+/** Bounded output reader from the host subprocess service. */
+export interface OutputReader {
+    /** Read a byte range; \`lossy\` marks a range that slid out of the tail. */
+    readFrom(offset: number): {
+        text: string;
+        offset: number;
+        lossy?: boolean;
+    };
+}
 /** Minimal subprocess handle surface this plugin needs. */
 export interface SpawnedProcess {
     done: Promise<{
@@ -34,6 +43,11 @@ export interface SpawnedProcess {
     }>;
     terminate(): Promise<void>;
     waitForExit(): Promise<void>;
+    /** Collected stdout (present when the spawn requested a collect cap). */
+    collected?: {
+        stdout?: OutputReader;
+        stderr?: OutputReader;
+    };
 }
 /** The subprocess capability this plugin consumes. */
 export interface SubprocessPort {
@@ -92,6 +106,12 @@ export interface StartOptions {
     graceMs: number;
     /** Captured-output cap for stdout (bytes). */
     stdoutMaxBytes?: number;
+    /** Spill file for the complete stdout stream (diagnostics: the login QR
+     * code and login-failure lines land here even when the in-memory tail
+     * rotates past them). */
+    stdoutSpillPath?: string;
+    /** Spill cap in bytes (the host drops the spill beyond this). */
+    stdoutSpillMaxBytes?: number;
 }
 /**
  * Spawn NapCat as a host-managed child process.
@@ -99,6 +119,18 @@ export interface StartOptions {
  * @returns the live handle.
  */
 export declare function startNapcat(options: StartOptions): SpawnedProcess;
+/** Login-failure markers NapCat prints when the stored credential is gone.
+ * A match means the process is healthy but needs a human to scan the QR code,
+ * so restarting cannot help. */
+export declare const LOGIN_FAILURE_MARKERS: readonly string[];
+/**
+ * Whether recent output shows a login failure (needs a human, not a restart).
+ * @param output - recent stdout text.
+ * @returns the matched marker, or undefined.
+ */
+export declare function detectLoginFailure(output: string): string | undefined;
+/** Read the whole collected stdout tail as text ('' when unavailable). */
+export declare function readOutput(handle: SpawnedProcess): string;
 /**
  * Terminate a spawned NapCat and wait for its process range to go quiet.
  * Idempotent: a handle whose process already exited resolves immediately.

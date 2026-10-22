@@ -17,10 +17,12 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": "./client/index.js"
   },
   "files": [
     "lib",
+    "client",
     "!lib/*.bak-*",
     "cordis.patch.yml",
     "README.md"
@@ -37,6 +39,9 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
     }
   },
   "peerDependencies": {
