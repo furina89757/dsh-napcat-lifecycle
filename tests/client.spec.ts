@@ -53,7 +53,7 @@ describe('client bundle', () => {
 
   it('exports inject/apply and the panel components', () => {
     const { exports } = loadBundle()
-    expect(exports.inject).toEqual(['slots', 'locale'])
+    expect(exports.inject).toEqual(['slots', 'locale', 'remote'])
     expect(typeof exports.apply).toBe('function')
     expect(typeof exports.NapcatPanel).toBe('function')
     expect(typeof exports.WebuiModal).toBe('function')
@@ -63,11 +63,15 @@ describe('client bundle', () => {
     const { exports } = loadBundle()
     const registrations: Array<{ def: Record<string, unknown>; component: unknown }> = []
     const dictionaries: string[] = []
+    const mounted: unknown[] = []
     const ctx = {
       effect: (fn: () => unknown) => { fn(); return () => undefined },
       locale: {
         register: (ns: string) => { dictionaries.push(ns); return () => undefined },
         bind: () => (key: string) => key,
+      },
+      remote: {
+        $mount: async (spec: unknown) => { mounted.push(spec); return () => undefined },
       },
       slots: {
         inject: (name: string, cb: () => unknown) => { expect(name).toBe('settings.section'); cb() },
@@ -76,7 +80,7 @@ describe('client bundle', () => {
           return () => undefined
         },
       },
-      get: () => undefined,
+      get: (key: string) => (key.startsWith('remote.') ? { getStatus: async () => ({}) } : undefined),
     }
     await (exports.apply as (c: unknown) => Promise<void>)(ctx)
     expect(registrations).toHaveLength(1)
@@ -85,6 +89,12 @@ describe('client bundle', () => {
     expect(registrations[0]?.def.order).toBe(30)
     expect(typeof registrations[0]?.component).toBe('function')
     expect(dictionaries).toEqual(['napcatLifecycle'])
+    expect(mounted).toHaveLength(1)
+    const spec = mounted[0] as { package: string; descriptors: Array<{ method: string }> }
+    expect(spec.package).toBe('dsh-napcat-lifecycle')
+    expect(spec.descriptors.map(d => d.method).sort()).toEqual(
+      ['getConfig', 'getStatus', 'restart', 'start', 'stop', 'updateConfig'],
+    )
   })
 
   it('carries zh and en dictionaries with the same key set', () => {

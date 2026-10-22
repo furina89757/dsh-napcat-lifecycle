@@ -5,7 +5,16 @@
 #
 # 本插件不依赖 dsh-onebot：它只负责拉起/关闭 NapCat 进程。
 # NapCat 与 dsh-onebot 之间是 OneBot 11 反向 WS 连接（NapCat 拨入 dsh）。
+#
+# 行说明：
+# 1. `napcat-lifecycle` —— 主条目，拉起/关闭 NapCat 进程（exports "."）。
+# 2. `napcat-lifecycle-remote` —— host-plane 行：挂载 napcatLifecycle Typert
+#    Remote（exports "./settings-remote"），供浏览器侧设置面板调用。
+#    client 跑在浏览器里，ctx.get() 拿不到 host cordis 服务，必须走 Remote。
+#    注意：禁止对同一插件文件二次 insert（同文件双实例 = 冲突崩溃循环）。
 - insert:
     - id: napcat-lifecycle
       name: 'dsh-napcat-lifecycle'
       # config: { napcatDir: '...', botQQ: '...' }
+    - id: napcat-lifecycle-remote
+      name: 'dsh-napcat-lifecycle/settings-remote'

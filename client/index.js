@@ -32,8 +32,9 @@ window.__ModuleLoader__.load({
 		}
 
 		var h = React.createElement;
-		var NS = "napcatLifecycle";
 		var PLUGIN_ID = "dsh-napcat-lifecycle";
+		var REMOTE_NS = "napcatLifecycle";
+		var NS = REMOTE_NS;
 
 		//#region 词条
 		var zh = {
@@ -128,6 +129,66 @@ window.__ModuleLoader__.load({
 		].join("\n");
 		//#endregion
 
+
+		//#region Remote 契约（与 host lib/settings-remote.js 的 NAMESPACE/CONFIG_KEYS 逐字对齐）
+		function strictCodec(typeSymbol, schema) {
+			return { mode: "strict", typeSymbol: typeSymbol, create: function () { return schema; }, schema: schema };
+		}
+		function jsonParameter(name, typeSymbol, schema) {
+			return { name: name, wire: name, source: "json", codec: strictCodec(typeSymbol, schema) };
+		}
+		function napcatMethod(method, parameters, resultSchema, typeSymbol) {
+			return {
+				id: PLUGIN_ID + "#" + REMOTE_NS + "/" + method,
+				service: REMOTE_NS,
+				namespace: REMOTE_NS,
+				method: method,
+				invocation: { kind: "direct" },
+				parameters: parameters,
+				result: strictCodec(typeSymbol, resultSchema),
+			};
+		}
+		/** 宽松 schema：结果由 host 侧组装，客户端只做透传（不重复校验）。 */
+		var looseSchema = {
+			parse: function (value) { return value; },
+		};
+		var actionSchema = {
+			parse: function (value) {
+				if (value === null || typeof value !== "object") throw new TypeError("expected object");
+				return { ok: value.ok === true, message: typeof value.message === "string" ? value.message : "" };
+			},
+		};
+		var configSnapshotSchema = {
+			parse: function (value) {
+				if (value === null || typeof value !== "object") throw new TypeError("expected object");
+				return {
+					revision: typeof value.revision === "number" ? value.revision : 0,
+					entryActive: value.entryActive === true,
+					config: value.config !== null && typeof value.config === "object" ? value.config : {},
+					keys: Array.isArray(value.keys) ? value.keys : [],
+				};
+			},
+		};
+		var configPatchSchema = {
+			parse: function (value) {
+				if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError("expected object");
+				return value;
+			},
+		};
+		var NAPCAT_SETTINGS_DESCRIPTORS = [
+			napcatMethod("getStatus", [], looseSchema, "LifecycleStatus"),
+			napcatMethod("start", [], actionSchema, "ActionResult"),
+			napcatMethod("stop", [], actionSchema, "ActionResult"),
+			napcatMethod("restart", [], actionSchema, "ActionResult"),
+			napcatMethod("getConfig", [], configSnapshotSchema, "ConfigSnapshot"),
+			napcatMethod("updateConfig", [
+				jsonParameter("patch", "ConfigPatch", configPatchSchema),
+				{ name: "expectedRevision", wire: "expectedRevision", source: "json", codec: strictCodec("number", { parse: function (v) { return v === undefined || v === null ? undefined : v; } }) },
+			], configSnapshotSchema, "ConfigSnapshot"),
+		];
+		var NAPCAT_SETTINGS_REMOTE = { package: PLUGIN_ID, descriptors: NAPCAT_SETTINGS_DESCRIPTORS };
+		//#endregion
+
 		//#region 工具
 		function fmtTime(ms) {
 			if (typeof ms !== "number" || ms <= 0) return "—";
@@ -183,24 +244,24 @@ window.__ModuleLoader__.load({
 
 		//#region 设置面板
 		function NapcatPanel() {
-			var ctx = NapcatPanel.__ctx;
+			var remote = NapcatPanel.__remote;
 			var t = NapcatPanel.__t;
 			var [status, setStatus] = React.useState(null);
 			var [busy, setBusy] = React.useState(false);
 			var [error, setError] = React.useState("");
 			var [webui, setWebui] = React.useState(null);
 
-			var service = ctx === undefined ? undefined : ctx.get(NS);
-
+			// Every call is a Remote round-trip to the host: async, and the failure
+			// mode is a rejected promise (no synchronous service object to read).
 			var refresh = React.useCallback(function () {
-				if (service === undefined) { setError(t("noService")); return; }
-				try {
-					setStatus(service.status());
+				if (remote === undefined) { setError(t("noService")); return; }
+				Promise.resolve(remote.getStatus()).then(function (next) {
+					setStatus(next);
 					setError("");
-				} catch (e) {
+				}).catch(function (e) {
 					setError(String(e && e.message ? e.message : e));
-				}
-			}, [service, t]);
+				});
+			}, [remote, t]);
 
 			React.useEffect(function () {
 				refresh();
@@ -209,11 +270,11 @@ window.__ModuleLoader__.load({
 			}, [refresh]);
 
 			var run = function (action, confirmText) {
-				if (service === undefined) return;
+				if (remote === undefined) return;
 				if (confirmText !== undefined && !window.confirm(confirmText)) return;
 				setBusy(true);
 				setError("");
-				Promise.resolve(service[action]()).then(function (res) {
+				Promise.resolve(remote[action]()).then(function (res) {
 					if (res && res.ok === false) setError(res.message || "");
 					refresh();
 				}).catch(function (e) {
@@ -260,7 +321,7 @@ window.__ModuleLoader__.load({
 		//#endregion
 
 		//#region 客户端入口
-		var inject = ["slots", "locale"];
+		var inject = ["slots", "locale", "remote"];
 
 		async function apply(ctx) {
 			ctx.effect(function () {
@@ -274,9 +335,16 @@ window.__ModuleLoader__.load({
 			ctx.effect(function () { return ctx.locale.register(NS, { zh: zh, en: en }); }, "napcat-lifecycle: dictionaries");
 			var t = ctx.locale.bind(NS);
 
-			// Hand the runtime context and translator to the panel component; the
+			// The panel runs in the browser: a host cordis service is NOT reachable
+			// through ctx.get(). Mount the Typert Remote namespace and read it from
+			// the remote service instead — that is the only supported channel.
+			var disposeRemote = await ctx.remote.$mount(NAPCAT_SETTINGS_REMOTE);
+			var remote = ctx.get("remote." + REMOTE_NS);
+			if (remote === undefined) throw new Error("napcatLifecycle Remote 挂载后不可用");
+
+			// Hand the remote service and translator to the panel component; the
 			// slot registration API takes a component, not a factory.
-			NapcatPanel.__ctx = ctx;
+			NapcatPanel.__remote = remote;
 			NapcatPanel.__t = t;
 
 			ctx.slots.inject("settings.section", function () {
@@ -288,11 +356,15 @@ window.__ModuleLoader__.load({
 					locale: NS,
 				}, NapcatPanel);
 			});
+
+			return function () { void disposeRemote(); };
 		}
 		//#endregion
 
 		exports.inject = inject;
 		exports.apply = apply;
+		exports.NAPCAT_SETTINGS_REMOTE = NAPCAT_SETTINGS_REMOTE;
+		exports.NAPCAT_SETTINGS_DESCRIPTORS = NAPCAT_SETTINGS_DESCRIPTORS;
 		exports.NapcatPanel = NapcatPanel;
 		exports.WebuiModal = WebuiModal;
 		exports.zh = zh;
