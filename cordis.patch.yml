@@ -1,0 +1,11 @@
+# dsh-napcat-lifecycle —— 让 NapCat 与 DSH 宿主同生共死。
+#
+# 声明：package.json `dsh.bundle.patch = "./cordis.patch.yml"`。
+# 顶层必须是 YAML 数组（宿主 parsePatchList 校验）。
+#
+# 本插件不依赖 dsh-onebot：它只负责拉起/关闭 NapCat 进程。
+# NapCat 与 dsh-onebot 之间是 OneBot 11 反向 WS 连接（NapCat 拨入 dsh）。
+- insert:
+    - id: napcat-lifecycle
+      name: 'dsh-napcat-lifecycle'
+      # config: { napcatDir: '...', botQQ: '...' }

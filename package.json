@@ -1,0 +1,53 @@
+{
+  "name": "dsh-napcat-lifecycle",
+  "version": "0.1.0",
+  "description": "NapCat process lifecycle for DeepSeek Harness: spawn the QQ/OneBot bridge with the host, terminate it with the host.",
+  "keywords": [
+    "napcat",
+    "onebot",
+    "qq",
+    "process-lifecycle"
+  ],
+  "private": false,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "!lib/*.bak-*",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/furina89757/dsh-napcat-lifecycle.git"
+  },
+  "engines": {
+    "dsh": ">=0.2.1-0 <0.3.0-0",
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/schemastery": "^3.18.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/schemastery": "^3.18.5",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
